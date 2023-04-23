@@ -1,0 +1,8 @@
+*.webp
+*.o
+*.png
+*.data
+*.txt
+*.asm
+*.qoi
+a.out
