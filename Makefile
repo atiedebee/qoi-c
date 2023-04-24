@@ -9,7 +9,6 @@ default: $(COBJ)
 	$(CC) $(COBJ) $(CFLAGS)
 
 
-
 bin/%.o:%.c
 	$(CC) $(CFLAGS) $^ -c -o $@
 

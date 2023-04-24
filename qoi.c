@@ -1,24 +1,41 @@
 #include <endian.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "qoi.h"
 
 typedef unsigned char ubyte;
 typedef unsigned char vec4u8 __attribute__((vector_size(4)));
+typedef signed char vec4s8 __attribute__((vector_size(4)));
 typedef uint16_t vec4u16 __attribute__((vector_size(8)));
+typedef int16_t vec4i16 __attribute__((vector_size(8)));
 
 /*
 benchmarks
+
+== System Used ==
+CPU         Ryzen 7 pro 6850U
+RAM         16GB DDR5 6400 MT/s
+OS          OpenSUSE TW 2022 12 02
+GCC         gcc (SUSE Linux) 12.2.1 20221020
+
+RGBA done with https://animecorner.me/wp-content/uploads/2023/03/Frieren.png
+The file size used to calculate the MB/s is the size of the RAW data (7.9MB)
+Each benchmark is done by running the compression part in a loop 100 times.
+
+
+compress (RGBA):
   | -O2                      | -O3
 --+-------------------+------+-------------------+------+
   | Time Average (ms) | MB/s | Time Average (ms) | MB/s |
 --+-------------------+------+-------------------+------+
-1 | 1380              |  572 | 1070              |  738 |
-2 |  926              |  853 |  902              |  875 |
-3 |  905              |  872 |  832              |  949 |
-4 |  767              | 1029 |  780              | 1012 |
+1 | 13.80             |  572 | 10.70             |  738 |
+2 |  9.26             |  853 |  9.02             |  875 |
+3 |  9.05             |  872 |  8.32             |  949 |
+4 |  7.67             | 1029 |  7.80             | 1012 |
 
 
 1. base
@@ -26,7 +43,22 @@ benchmarks
 3. changed calculate_luma to partially use vectors
 4. replaced comparisons with integer comparison in union (for some reason also reduced filesize from 2.6 MB to 1.8 MB)
 
+
+
+decompress (RGBA):
+  | -O2                      | -O3
+--+-------------------+------+-------------------+------+
+  | Time Average (ms) | MB/s | Time Average (ms) | MB/s |
+--+-------------------+------+-------------------+------+
+1 |                   |      | 10.20             |  774 |
+2 |  9.67             |  816 |  9.26             |  853 |
+3 |  6.54             | 1207 |  6.21             | 1272 |
+
+1. base
+2. Removed pixelcounter from if else statements. And only put it in the run length decode. Add 1 to it at the end of the loop
+3. Replaced 'channels' variable with a constant (4) because I'll split the function up in an RGB and RGBA one anyways
 */
+
 
 union Pixel{
     struct{
@@ -73,12 +105,16 @@ struct qoi_header write_header(ubyte *out, ubyte channels, size_t w, size_t h){
 }
 
 static
-struct qoi_header read_header(ubyte *out){
+struct qoi_header read_header(const ubyte *in){
     struct qoi_header header;
-    memcpy(&header, out, 14);
+    memcpy(&header, in, 14);
+    header.w = be32toh(header.w);
+    header.h = be32toh(header.h);
+    fprintf(stderr, "w: %u\n", header.w);
+    fprintf(stderr, "h: %u\n", header.h);
+    fprintf(stderr, "channels: %u\n", header.channels);
     return header;
 }
-
 
 
 static
@@ -103,7 +139,7 @@ static
 void write_qoi_luma(ubyte* out, union Pixel *p){
     *out = QOI_OP_LUMA;
     *out |= p->g;
-    *(out+1) = p->r<<4 | p->b;
+    *(out+1) = (p->r << 4) | p->b;
 }
 
 
@@ -113,8 +149,15 @@ size_t calculate_index(union Pixel *restrict p){
     const uint16_t g = 5 * (uint16_t)p->g;
     const uint16_t b = 7 * (uint16_t)p->b;
     const uint16_t a = 11 * (uint16_t)p->a;
-    return (r + g + b + a)&63;
+    return (r + g + b + a) & 63;
 }
+/*
+static
+size_t calculate_index(union Pixel *restrict p){
+    vec4u8 v = p->vec * (const vec4u8){3, 5, 7, 11};
+    return (v[0] + v[1] + v[2] + v[3]) % 64;
+}*/
+
 
 static
 size_t calculate_index_rgb(union Pixel *restrict p){
@@ -127,43 +170,65 @@ size_t calculate_index_rgb(union Pixel *restrict p){
 
 static
 bool calculate_diff(union Pixel *restrict dest, union Pixel *restrict prev, union Pixel *restrict cur){
-#if defined(__x86_64__)
     dest->vec = cur->vec - prev->vec + 2;
-#else
-    __builtin_sub_overflow(cur->r , prev->r, &dest->r);
-    __builtin_sub_overflow(cur->g , prev->g, &dest->g);
-    __builtin_sub_overflow(cur->b , prev->b, &dest->b);
-
-    __builtin_add_overflow(dest->r , 2, &dest->r);
-    __builtin_add_overflow(dest->g , 2, &dest->g);
-    __builtin_add_overflow(dest->b , 2, &dest->b);
-#endif
     if( dest->r < 4 && dest->g < 4 && dest->b < 4 ){
         return true;
     }
     return false;
 }
 
+/*
+static
+bool calculate_diff(union Pixel *restrict dest, union Pixel *restrict prev, union Pixel *restrict cur){
+    const int16_t r = (int16_t)cur->r - (int16_t)prev->r;
+    const int16_t g = (int16_t)cur->g - (int16_t)prev->g;
+    const int16_t b = (int16_t)cur->b - (int16_t)prev->b;
+    if( r >= -2 && r <= 1 &&
+        g >= -2 && g <= 1 &&
+        b >= -2 && b <= 1
+    ){
+        dest->r = (ubyte)(r + 2);
+        dest->g = (ubyte)(g + 2);
+        dest->b = (ubyte)(b + 2);
+        return true;
+    }
+    return false;
+}*/
 
+
+
+
+static
+bool calculate_luma(union Pixel *restrict dest, union Pixel *restrict prev, union Pixel *restrict cur){
+    const int16_t dg = (int16_t)cur->g - (int16_t)prev->g;
+    dest->vec = cur->vec - prev->vec - (ubyte)dg + 8;
+
+    if( dg >= -32 && dg <= 31 && dest->r < 16 && dest->b < 16 ){
+        dest->g = (ubyte)(dg + 32);
+        return true;
+    }
+    return false;
+}
+/*
 static
 bool calculate_luma(union Pixel *restrict dest, union Pixel *restrict prev, union Pixel *restrict cur){
     const int16_t dg = (int16_t)cur->g - (int16_t)prev->g;
 
     if( dg >= -32 && dg <= 31 ){
-        dest->vec = cur->vec - prev->vec - (ubyte)dg + 8;
-
-        // int16_t dr_dg = ((int16_t)cur->r - (int16_t)prev->r) - dg + 8;
-        // int16_t db_dg = ((int16_t)cur->b - (int16_t)prev->b) - dg + 8;
-        // if( dr_dg >= 0 && dr_dg < 16 && db_dg >= 0 && db_dg < 16 ){
-        if( dest->r < 16 && dest->b < 16 ){
-            // dest->r = (ubyte)dr_dg;
+        const int16_t dr_dg = ((int16_t)cur->r - (int16_t)prev->r) - dg;
+        const int16_t db_dg = ((int16_t)cur->b - (int16_t)prev->b) - dg;;
+        if( dr_dg >= -8 && dr_dg <= 7 &&
+            db_dg >= -8 && db_dg <= 7
+        ){
+            dest->r = (ubyte)(dr_dg + 8);
             dest->g = (ubyte)(dg + 32);
-            // dest->b = (ubyte)db_dg;
+            dest->b = (ubyte)(db_dg + 8);
             return true;
         }
     }
     return false;
-}
+}*/
+
 
 
 static
@@ -190,8 +255,7 @@ size_t compress_image_rgba(const ubyte* in, ubyte* out, struct qoi_header settin
     memset(pixels, 0, sizeof(pixels));
 
     while(pixel_counter < pixel_count) {
-        memcpy(&cur_pixel, in + pixel_counter*4, 4);
-        pixel_counter += 1;
+        memcpy(&cur_pixel, &in [pixel_counter*4], 4);
 
         if( pixels_equal(&cur_pixel, &prev_pixel) ){
             run_length += 1;
@@ -207,45 +271,57 @@ size_t compress_image_rgba(const ubyte* in, ubyte* out, struct qoi_header settin
                 out_pos += 1;
                 run_length = 0;
             }
-            pixels_index = calculate_index(&cur_pixel);
 
+            pixels_index = calculate_index(&cur_pixel);
 
             if( pixels_equal(&cur_pixel, &pixels[pixels_index]) ){
                 write_qoi_index(&out[out_pos], pixels_index);
-                out_pos += 1;
+                // out_pos += 1;
             }
-            else if( calculate_diff(&diff_pixel, &prev_pixel, &cur_pixel) ){
-                write_qoi_diff(&out[out_pos], &diff_pixel);
-                out_pos += 1;
-            }
-            else if( calculate_luma(&luma_pixel, &prev_pixel, &cur_pixel) ){
-                write_qoi_luma(&out[out_pos], &luma_pixel);
-                out_pos += 2;
-            }
-            else if( prev_pixel.a == cur_pixel.a ){
-                out[out_pos] = QOI_OP_RGB;
-                memcpy(&out[out_pos+1], &cur_pixel, 3);
-                out_pos += 4;
+            else if( cur_pixel.a == prev_pixel.a ){
+                if( calculate_diff(&diff_pixel, &prev_pixel, &cur_pixel) ){
+                    write_qoi_diff(&out[out_pos], &diff_pixel);
+                    // out_pos += 1;
+                }
+                else if( calculate_luma(&luma_pixel, &prev_pixel, &cur_pixel) ){
+                    write_qoi_luma(&out[out_pos], &luma_pixel);
+                    out_pos += 1;
+                }
+                else{
+                    out[out_pos] = QOI_OP_RGB;
+                    memcpy(&out[out_pos+1], &cur_pixel, 3);
+                    out_pos += 3;
+                }
             }
             else{
                 out[out_pos] = QOI_OP_RGBA;
                 memcpy(&out[out_pos+1], &cur_pixel, 4);
-                out_pos += 5;
+                out_pos += 4;
             }
-            memcpy(&pixels[pixels_index], &cur_pixel, 4);
-            memcpy(&prev_pixel, &cur_pixel, 4);
+            out_pos += 1;
+            pixels[pixels_index].i = cur_pixel.i;
+            prev_pixel.i = cur_pixel.i;
+            // memcpy(&pixels[pixels_index], &cur_pixel, 4);
+            // memcpy(&prev_pixel, &cur_pixel, 4);
         }
+        pixel_counter += 1;
+    }
 
+    if( run_length > 0 ){
+        write_qoi_run(&out[out_pos], run_length);
+        out_pos += 1;
     }
 
     memset(&out[out_pos], 0, 7);
     out[out_pos + 7] = 1;
-
+    out_pos += 8;
     return out_pos;
 }
 
 
-
+  // // // // //
+ // // RGB / //
+// // // // //
 
 static
 size_t compress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header settings){
@@ -307,6 +383,12 @@ size_t compress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header setting
         }
 
     }
+    if( run_length > 0 ){
+        write_qoi_run(&out[out_pos], run_length);
+        out_pos += 1;
+        run_length = 0;
+    }
+
     memset(&out[out_pos], 0, 7);
     out[out_pos + 7] = 1;
 
@@ -329,15 +411,14 @@ size_t qoi_compress(const unsigned char* in, unsigned char* out, unsigned int ch
 
 
 
-size_t decompress_image(const ubyte* in, ubyte* out, struct qoi_header header){
-    const size_t channels = header.channels;
+size_t decompress_image_rgba(const ubyte* in, ubyte* out, struct qoi_header header){
     const size_t pixel_count = header.w * header.h;
-    size_t pixel_index = 0;
+    size_t pixel_counter = 0;
 
     union Pixel pixels[64];
     union Pixel prev_pixel = {{0, 0, 0, 255}};
     union Pixel diff_pixel = {{0, 0, 0, 0}};
-    union Pixel temp_pixel;
+    union Pixel cur_pixel;
 
 
     size_t in_index = 0;
@@ -349,72 +430,180 @@ size_t decompress_image(const ubyte* in, ubyte* out, struct qoi_header header){
 
     memset(pixels, 0, sizeof(pixels));
 
-    while( pixel_index < pixel_count ){
+
+    while( pixel_counter < pixel_count ){
         b = in[in_index];
 
-
-        if( (b & QOI_OP_INDEX) == QOI_OP_INDEX ){
-            pixels_index = b & 63;
-            memcpy(&out[out_index], &pixels[pixels_index], channels);
-            out_index += channels;
-            in_index += 1;
-        }
-        else if(b == QOI_OP_RGB){
+        if(b == QOI_OP_RGB){
             memcpy(&out[out_index], &in[in_index+1], 3);
-            if( channels == 4 ) out[out_index+3] = prev_pixel.a;
-            out_index += channels;
+            out[out_index+3] = prev_pixel.a;
+            memcpy(&cur_pixel, &out[out_index], 4);
+
+            out_index += 4;
             in_index += 4;
         }
         else if(b == QOI_OP_RGBA){
             memcpy(&out[out_index], &in[in_index+1], 4);
+            memcpy(&cur_pixel, &out[out_index], 4);
+
             out_index += 4;
             in_index += 5;
         }
+        else if((b & QOI_OP_RUN) == QOI_OP_RUN){
+            run_length = (b & 63) + 1;
+            pixel_counter += run_length - 1;
+
+            while(run_length--){
+                memcpy(&out[out_index], &prev_pixel, 4);
+                out_index += 4;
+            }
+
+            in_index += 1;
+        }
         else if( (b & QOI_OP_LUMA) == QOI_OP_LUMA){
-            diff_pixel.g = (b & 0x0F) - 32;
-            diff_pixel.r = (in[in_index + 1] & 0xF0) - 8 + diff_pixel.g;
-            diff_pixel.b = (in[in_index + 1] & 0x0F) - 8 + diff_pixel.g;
-            temp_pixel.vec = diff_pixel.vec + prev_pixel.vec;
+            diff_pixel.g = (b & 63) - 32;
+            diff_pixel.r = ((in[in_index + 1]>>4)& 0x0F) + diff_pixel.g - 8;
+            diff_pixel.b = (in[in_index + 1] & 0x0F)     + diff_pixel.g - 8;
 
-            memcpy(&out[out_index], &temp_pixel, channels);
+            cur_pixel.vec = prev_pixel.vec + diff_pixel.vec;
 
-            out_index += channels;
+            memcpy(&out[out_index], &cur_pixel, 4);
+
+            out_index += 4;
             in_index += 2;
         }
         else if( (b & QOI_OP_DIFF) == QOI_OP_DIFF){
             diff_pixel.r = (b>>4)&3;
             diff_pixel.g = (b>>2)&3;
             diff_pixel.b = b&3;
-            temp_pixel.vec = prev_pixel.vec + diff_pixel.vec - 2;
+            cur_pixel.vec = prev_pixel.vec + diff_pixel.vec + (vec4u8){-2, -2, -2, 0};
 
-            memcpy(&out[out_index], &temp_pixel, channels);
-            out_index += channels;
-            pixel_index += 1;
+            memcpy(&out[out_index], &cur_pixel, 4);
+
+            out_index += 4;
             in_index += 1;
         }
-        else if( (b & QOI_OP_RUN) == QOI_OP_RUN){
-            run_length = (b & 63)+ 1;
-            pixel_index += run_length;
-            out_index += channels * run_length;
+        else{
+            pixels_index = b & 63;
+            memcpy(&out[out_index], &pixels[pixels_index], 4);
+            cur_pixel.i = pixels[pixels_index].i;
+
+            out_index += 4;
+            in_index += 1;
+        }
+
+        pixel_counter += 1;
+        pixels_index = calculate_index(&cur_pixel);
+
+        pixels[pixels_index].i = cur_pixel.i;
+        prev_pixel.i = cur_pixel.i;
+    }
+
+    return out_index;
+}
+
+size_t decompress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header header){
+    const size_t pixel_count = header.w * header.h;
+    size_t pixel_counter = 0;
+
+    union Pixel pixels[64];
+    union Pixel prev_pixel = {{0, 0, 0, 255}};
+    union Pixel diff_pixel = {{0, 0, 0, 0}};
+    union Pixel cur_pixel;
+
+
+    size_t in_index = 0;
+    size_t out_index = 0;
+
+    size_t pixels_index;
+    size_t run_length;
+    ubyte b;
+
+    memset(pixels, 0, sizeof(pixels));
+
+    fprintf(stdout, "Pixel count: %ld\n", pixel_count);
+    fprintf(stdout, "w: %u, h: %u\n", header.w, header.h);
+
+
+    while( pixel_counter < pixel_count ){
+        b = in[in_index];
+        fprintf(stdout, "Reading at %ld (counter: %ld)\n", in_index, pixel_counter);
+        if(b == QOI_OP_RGB){
+            memcpy(&out[out_index], &in[in_index+1], 3);
+            memcpy(&cur_pixel, &out[out_index], 3);
+
+            out_index += 3;
+            in_index += 4;
+        }
+        else if((b & QOI_OP_RUN) == QOI_OP_RUN){
+            run_length = (b & 63) + 1;
+            pixel_counter += run_length - 1;
+
             while(run_length--){
-                memcpy(&out[out_index], &prev_pixel, channels);
+                memcpy(&out[out_index], &prev_pixel, 3);
+                out_index += 3;
             }
 
             in_index += 1;
         }
+        else if( (b & QOI_OP_LUMA) == QOI_OP_LUMA){
+            diff_pixel.g = (b & 63) - 32;
+            diff_pixel.r = ((in[in_index + 1]>>4)& 0x0F) + diff_pixel.g - 8;
+            diff_pixel.b = (in[in_index + 1] & 0x0F)     + diff_pixel.g - 8;
 
+            cur_pixel.vec = prev_pixel.vec + diff_pixel.vec;
+
+            memcpy(&out[out_index], &cur_pixel, 3);
+
+            out_index += 3;
+            in_index += 2;
+        }
+        else if( (b & QOI_OP_DIFF) == QOI_OP_DIFF){
+            diff_pixel.r = (b>>4)&3;
+            diff_pixel.g = (b>>2)&3;
+            diff_pixel.b = b&3;
+            cur_pixel.vec = prev_pixel.vec + diff_pixel.vec + (vec4u8){-2, -2, -2, 0};
+
+            memcpy(&out[out_index], &cur_pixel, 3);
+
+            out_index += 3;
+            in_index += 1;
+        }
+        else{// QOI_OP_INDEX
+            pixels_index = b & 63;
+            memcpy(&out[out_index], &pixels[pixels_index], 3);
+            cur_pixel.i = pixels[pixels_index].i;
+
+            out_index += 3;
+            in_index += 1;
+        }
+
+        pixel_counter += 1;
+        pixels_index = calculate_index(&cur_pixel);
+
+        pixels[pixels_index].i = cur_pixel.i;
+        prev_pixel.i = cur_pixel.i;
     }
-
-
 
     return out_index;
 }
 
 
 
-size_t decompress(const unsigned char* in, unsigned char* out){
-    struct qoi_header header = read_header(out);
-    size_t size = 14 + decompress_image(in, out, header);
 
+size_t qoi_decompress(const unsigned char* in, unsigned char* out){
+    struct qoi_header header = read_header(in);
+    size_t size;
+
+    if( (header.channels != 3 && header.channels != 4) || memcmp(header.magic, "qoif", 4) != 0){
+        fprintf(stderr, "Invalid header\n");
+        return 0;
+    }
+
+    if( header.channels == 3 ){
+        size = decompress_image_rgb(in + 14, out, header);
+    }else{
+        size = decompress_image_rgba(in + 14, out, header);
+    }
     return size;
 }
