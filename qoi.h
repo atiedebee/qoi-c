@@ -13,7 +13,7 @@ struct qoi_header{
 };
 
 
-extern size_t qoi_compress(const unsigned char* in, unsigned char* out, unsigned char channels, unsigned int w, unsigned int h);
+extern size_t qoi_compress(const unsigned char* in, unsigned char* out, unsigned char channels, uint32_t w, uint32_t h);
 extern size_t qoi_decompress(const unsigned char* in, unsigned char* out);
 
 extern struct qoi_header qoi_header_read(const unsigned char* in);

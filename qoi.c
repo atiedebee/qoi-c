@@ -17,12 +17,11 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
-#include <endian.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
+#include <endian.h>
 
 #include "qoi.h"
 
@@ -548,7 +547,6 @@ size_t qoi_decompress(const unsigned char* in, unsigned char* out){
     size_t size;
 
     if(!qoi_header_valid(header) ){
-        fprintf(stderr, "Invalid header\n");
         return 0;
     }
 
