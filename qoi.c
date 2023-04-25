@@ -157,10 +157,7 @@ size_t calculate_index(union Pixel *restrict p){
 
 static
 size_t calculate_index_rgb(union Pixel *restrict p){
-    const uint16_t r = 3 * (uint16_t)p->r;
-    const uint16_t g = 5 * (uint16_t)p->g;
-    const uint16_t b = 7 * (uint16_t)p->b;
-    return (r + g + b)&63;
+    return (p->r * 3 + p->g * 5 + p->b * 7 + p->a * 11)&63;
 }
 
 
@@ -174,6 +171,7 @@ bool calculate_diff(union Pixel *restrict dest, union Pixel *restrict prev, unio
 }
 
 
+__attribute__((unused))
 static
 bool calculate_diff_clean(union Pixel *restrict dest, union Pixel *restrict prev, union Pixel *restrict cur){
     const int16_t r = (int16_t)cur->r - (int16_t)prev->r;
@@ -195,6 +193,7 @@ bool calculate_diff_clean(union Pixel *restrict dest, union Pixel *restrict prev
 static
 bool calculate_luma(union Pixel *restrict dest, union Pixel *restrict prev, union Pixel *restrict cur){
     const int16_t dg = (int16_t)cur->g - (int16_t)prev->g;
+
     dest->vec = cur->vec - prev->vec - (ubyte)dg + 8;
 
     if( dg >= -32 && dg <= 31 && dest->r < 16 && dest->b < 16 ){
@@ -205,6 +204,7 @@ bool calculate_luma(union Pixel *restrict dest, union Pixel *restrict prev, unio
 }
 
 
+__attribute__((unused))
 static
 bool calculate_luma_clean(union Pixel *restrict dest, union Pixel *restrict prev, union Pixel *restrict cur){
     const int16_t dg = (int16_t)cur->g - (int16_t)prev->g;
@@ -247,6 +247,7 @@ size_t compress_image_rgba(const ubyte* in, ubyte* out, struct qoi_header settin
     size_t pixels_index;
 
     memset(pixels, 0, sizeof(pixels));
+    pixels[calculate_index_rgb(&prev_pixel)].i = prev_pixel.i;
 
     while(pixel_counter < pixel_count) {
         memcpy(&cur_pixel, &in [pixel_counter*4], 4);
@@ -295,8 +296,6 @@ size_t compress_image_rgba(const ubyte* in, ubyte* out, struct qoi_header settin
             out_pos += 1;
             pixels[pixels_index].i = cur_pixel.i;
             prev_pixel.i = cur_pixel.i;
-            // memcpy(&pixels[pixels_index], &cur_pixel, 4);
-            // memcpy(&prev_pixel, &cur_pixel, 4);
         }
         pixel_counter += 1;
     }
@@ -317,9 +316,9 @@ static
 size_t compress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header settings){
     const size_t pixel_count = header_get_w(settings) * header_get_h(settings);
 
-    union Pixel pixels[64];
-    union Pixel cur_pixel = {.a = 255};
+    union Pixel pixels[64] = {0};
     union Pixel prev_pixel = {{0, 0, 0, 255}};
+    union Pixel cur_pixel = {.i = prev_pixel.i};
     union Pixel diff_pixel;
     union Pixel luma_pixel;
 
@@ -329,12 +328,13 @@ size_t compress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header setting
     size_t pixels_index;
 
     memset(pixels, 0, sizeof(pixels));
-    fprintf(stderr, "Writing %ld pixels\n", pixel_count);
+
     while(pixel_counter < pixel_count)
     {
         memcpy(&cur_pixel, &in[pixel_counter * 3], 3);
 
-        if( cur_pixel.i  == prev_pixel.i ){
+
+        if( memcmp(&cur_pixel, &prev_pixel, 3) == 0 ){
             run_length += 1;
             if( run_length == 62 ){
                 write_qoi_run(&out[out_pos], run_length);
@@ -351,7 +351,7 @@ size_t compress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header setting
 
             pixels_index = calculate_index_rgb(&cur_pixel);
 
-            if( cur_pixel.i == pixels[pixels_index].i ){
+            if( memcmp(&cur_pixel, &pixels[pixels_index], 3) == 0 ){
                 write_qoi_index(&out[out_pos], pixels_index);
                 out_pos += 1;
             }
@@ -368,21 +368,18 @@ size_t compress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header setting
                 memcpy(&out[out_pos+1], &cur_pixel, 3);
                 out_pos += 4;
             }
+            pixels[pixels_index].i = cur_pixel.i;
+            prev_pixel.i = cur_pixel.i;
         }
-        memcpy(&pixels[pixels_index], &cur_pixel, 3);
-        memcpy(&prev_pixel, &cur_pixel, 3);
 
         pixel_counter += 1;
     }
-
     if( run_length > 0 ){
         write_qoi_run(&out[out_pos], run_length);
         out_pos += 1;
         run_length = 0;
     }
 
-    fprintf(stderr, "Wrote %lu pixels, which is %lu bytes\n", pixel_counter, pixel_counter * 4);
-    fprintf(stderr, "output pos: %lu\n", out_pos);
     memset(&out[out_pos], 0, 7);
     out[out_pos + 7] = 1;
     out_pos += 8;
@@ -482,7 +479,6 @@ size_t decompress_image_rgba(const ubyte* in, ubyte* out, struct qoi_header head
     return out_index;
 }
 
-// BUG
 static
 size_t decompress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header header){
     const size_t pixel_count = header.w * header.h;
@@ -491,7 +487,7 @@ size_t decompress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header heade
     union Pixel pixels[64];
     union Pixel prev_pixel = {{0, 0, 0, 255}};
     union Pixel diff_pixel = {{0, 0, 0, 0}};
-    union Pixel cur_pixel;
+    union Pixel cur_pixel = prev_pixel;
 
     size_t in_index = 0;
     size_t out_index = 0;
@@ -547,7 +543,7 @@ size_t decompress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header heade
             in_index += 1;
         }
         else{// QOI_OP_INDEX
-            pixels_index = b & 63;
+            pixels_index = b;
             memcpy(&out[out_index], &pixels[pixels_index], 3);
             cur_pixel.i = pixels[pixels_index].i;
 

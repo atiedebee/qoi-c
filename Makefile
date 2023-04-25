@@ -1,14 +1,17 @@
-CSRC = $(wildcard *.c)
-COBJ = $(addprefix bin/, $(CSRC:.c=.o))
-
 CC = gcc
-CFLAGS = -O3 -Wall -Wextra
+CFLAGS = -O3 -Wall -Wextra -fuse-ld=lld -fpic
+
+CSRC = qoi.c
+
+default:
+	$(CC) $(CFLAGS) $(CSRC) -c -o bin/qoi.o
 
 
-default: $(COBJ)
-	$(CC) $(COBJ) $(CFLAGS)
+.PHONY: shared clean
 
 
-bin/%.o:%.c
-	$(CC) $(CFLAGS) $^ -c -o $@
+shared: default
+	$(CC) $(CFLAGS) bin/qoi.o -shared -o qoi.so
 
+clean:
+	@rm bin/qoi.o qoi.so
