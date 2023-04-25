@@ -9,9 +9,6 @@
 
 typedef unsigned char ubyte;
 typedef unsigned char vec4u8 __attribute__((vector_size(4)));
-typedef signed char vec4s8 __attribute__((vector_size(4)));
-typedef uint16_t vec4u16 __attribute__((vector_size(8)));
-typedef int16_t vec4i16 __attribute__((vector_size(8)));
 
 /*
 benchmarks
@@ -271,12 +268,10 @@ size_t compress_image_rgba(const ubyte* in, ubyte* out, struct qoi_header settin
 
             if( pixels_equal(&cur_pixel, &pixels[pixels_index]) ){
                 write_qoi_index(&out[out_pos], pixels_index);
-                // out_pos += 1;
             }
             else if( cur_pixel.a == prev_pixel.a ){
                 if( calculate_diff(&diff_pixel, &prev_pixel, &cur_pixel) ){
                     write_qoi_diff(&out[out_pos], &diff_pixel);
-                    // out_pos += 1;
                 }
                 else if( calculate_luma(&luma_pixel, &prev_pixel, &cur_pixel) ){
                     write_qoi_luma(&out[out_pos], &luma_pixel);
