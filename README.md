@@ -1,5 +1,15 @@
 qoi implementation in C. Optimized using gcc vector extensions
 
+### Building
+This isn't and won't be available as a standalone program.
+
+To get the shared object:
+> make shared
+
+To get the base object file (located in bin):
+> make
+
+
 ### Benchmarks
 
 |System Used |                                  |
