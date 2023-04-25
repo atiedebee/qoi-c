@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -196,16 +197,125 @@ void benchmark_compress_rgba(){
 	fclose(fout);
 	fclose(f);
 	free(out);
-
 }
+
+
+
+bool test_compress(const char* fin_name, const char *fout_name, unsigned int w, unsigned int h, unsigned char channels){
+	FILE* fin = fopen(fin_name, "r");
+	FILE* fout = fopen(fout_name, "w");
+	unsigned char* out;
+	unsigned char* in;
+	size_t len;
+	size_t outlen;
+	struct qoi_header header;
+
+	if( fin == NULL || fout == NULL ){
+		fprintf(stderr, "Couldn't open files\n");
+		fclose(fin);
+		fclose(fout);
+		return false;
+	}
+
+	fseek(fin, 0l, SEEK_END);
+	len = ftell(fin);
+	rewind(fin);
+
+	in = mmap(NULL, len, PROT_READ, MAP_SHARED, fileno(fin), 0);
+	if( in == NULL ){
+		fprintf(stderr, "Mmap failure\n");
+		fclose(fin);
+		fclose(fout);
+		return false;
+	}
+
+	header.w = w;
+	header.h = h;
+	header.channels = channels;
+
+	outlen = qoi_max_compressed_image_size(header);
+	// outlen = 100000000;
+	out = malloc(outlen);
+	if( !out ){
+		fprintf(stderr, "Malloc failure\n");
+		fclose(fin);
+		fclose(fout);
+		return false;
+	}
+
+	outlen = qoi_compress(in, out, header.channels, header.w, header.h);
+	fwrite(out, 1, outlen, fout);
+
+	munmap(in, len);
+	free(out);
+	fclose(fin);
+	fclose(fout);
+	return true;
+}
+
+bool test_decompress(const char* fin_name, const char *fout_name){
+	FILE* fin = fopen(fin_name, "r");
+	FILE* fout = fopen(fout_name, "w");
+	unsigned char* out;
+	unsigned char* in;
+	size_t len;
+	size_t outlen;
+	struct qoi_header header;
+	if( fin == NULL || fout == NULL ){
+		fprintf(stderr, "Couldn't open files\n");
+		fclose(fin);
+		fclose(fout);
+		return false;
+	}
+
+	fseek(fin, 0l, SEEK_END);
+	len = ftell(fin);
+	rewind(fin);
+
+	in = mmap(NULL, len, PROT_READ, MAP_SHARED, fileno(fin), 0);
+	if( in == NULL ){
+		fprintf(stderr, "Mmap failure\n");
+		fclose(fin);
+		fclose(fout);
+		return false;
+	}
+
+
+	outlen = qoi_decompressed_image_size(header);
+	out = malloc(outlen);
+	if( !out ){
+		fprintf(stderr, "Malloc failure\n");
+		fclose(fin);
+		fclose(fout);
+		return false;
+	}
+
+	outlen = qoi_decompress(in, out);
+
+	fwrite(out, 1, outlen, fout);
+	munmap(in, len);
+	free(out);
+	fclose(fin);
+	fclose(fout);
+	return true;
+}
+
 
 
 int main(){
 	// test_compress_rgb();
-	test_compress_rgba();
+	// test_compress_rgba();
 	// test_decompress_rgb();
 	// test_decompress_rgba();
 	// test_compress_decompressed_rgba();
-	benchmark_compress_rgba();
+	// benchmark_compress_rgba();
 	// benchmark_decompress_rgba();
+	test_compress("test_rgb.data", "test_rgb.qoi", 768, 512, 3);
+	// if( test_compress("test_rgb.data", "test_rgb.qoi", 768, 512, 3) ){
+		// if( test_decompress("test_rgb.qoi", "test_rgb_res.data") ){
+			// test_compress("test_rgb_res.data", "test_rgb_res_res.qoi", 768, 512, 3);
+		// }
+	// }
+	// test_decompress("test_rgba.qoi", "test_rgba_res.data");
+	// test_decompress("test_rgba_.qoi", "test_rgba_res_.data");
 }
