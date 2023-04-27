@@ -9,7 +9,7 @@ default:
 
 
 shared: default
-	$(CC) $(CFLAGS) bin/qoi.o -shared -o qoi.so
+	$(CC) $(CFLAGS) bin/qoi.o -fPIC -shared -o qoi.so
 
 test:
 	$(CC) $(CFLAGS) qoi.c test.c
