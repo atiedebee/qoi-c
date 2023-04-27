@@ -35,6 +35,7 @@ union Pixel{
         ubyte b;
         ubyte a;
     };
+
     vec4u8 vec;
     uint32_t i;
 };
@@ -115,10 +116,10 @@ void write_qoi_luma(ubyte* out, union Pixel *p){
 
 static
 size_t calculate_index(union Pixel *restrict p){
-    const uint16_t r = 3 * (uint16_t)p->r;
-    const uint16_t g = 5 * (uint16_t)p->g;
-    const uint16_t b = 7 * (uint16_t)p->b;
-    const uint16_t a = 11 * (uint16_t)p->a;
+    const ubyte r = 3 * p->r;
+    const ubyte g = 5 * p->g;
+    const ubyte b = 7 * p->b;
+    const ubyte a = 11 * p->a;
     return (r + g + b + a) & 63;
 }
 
@@ -172,6 +173,7 @@ bool calculate_luma(union Pixel *restrict dest, union Pixel *restrict prev, unio
 }
 
 
+
 __attribute__((unused))
 static
 bool calculate_luma_clean(union Pixel *restrict dest, union Pixel *restrict prev, union Pixel *restrict cur){
@@ -215,7 +217,7 @@ size_t compress_image_rgba(const ubyte* in, ubyte* out, struct qoi_header settin
     size_t pixels_index;
 
     memset(pixels, 0, sizeof(pixels));
-    pixels[calculate_index_rgb(&prev_pixel)].i = prev_pixel.i;
+    pixels[calculate_index(&prev_pixel)].i = prev_pixel.i;
 
     while(pixel_counter < pixel_count) {
         memcpy(&cur_pixel, &in [pixel_counter*4], 4);
@@ -326,7 +328,7 @@ size_t compress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header setting
                 out_pos += 1;
             }
             else if( calculate_luma(&luma_pixel, &prev_pixel, &cur_pixel) ){
-                write_qoi_luma(&out[out_pos], &luma_pixel);
+                write_qoi_luma(&out[out_pos], &diff_pixel);
                 out_pos += 2;
             }
             else{
@@ -528,9 +530,15 @@ size_t decompress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header heade
 }
 
 
-size_t qoi_compress(const unsigned char* in, unsigned char* out, unsigned char channels, unsigned int w, unsigned int h){
-    struct qoi_header header = write_header(out, channels, w, h);
+size_t qoi_compress(const unsigned char in[static 1], unsigned char out[static 22], unsigned char channels, unsigned int w, unsigned int h){
+    struct qoi_header header;
     size_t size;
+
+    if( channels < 3 || channels > 4 || w == 0 || h == 0 ){
+        return 0;
+    }
+
+    header = write_header(out, channels, w, h);
 
     if( channels == 4 ){
         size = compress_image_rgba(in, out + 14, header) + 14;

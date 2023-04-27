@@ -1,17 +1,17 @@
 CC = gcc
-CFLAGS = -O3 -Wall -Wextra -fuse-ld=lld -fpic
+CFLAGS = -O3 -Wall -Wextra
 
-CSRC = qoi.c
 
 default:
-	$(CC) $(CFLAGS) $(CSRC) -c -o bin/qoi.o
+	$(CC) $(CFLAGS) qoi.c -c -o bin/qoi.o
 
-
-.PHONY: shared clean
+.PHONY: shared clean test
 
 
 shared: default
 	$(CC) $(CFLAGS) bin/qoi.o -shared -o qoi.so
 
+test:
+	$(CC) $(CFLAGS) qoi.c test.c
 clean:
-	@rm bin/qoi.o qoi.so
+	@rm bin/qoi.o qoi.so a.out
