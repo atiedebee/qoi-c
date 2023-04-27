@@ -9,6 +9,13 @@ To get the shared object:
 To get the base object file (located in bin):
 > make
 
+To test compression on some (2) images:
+> make test
+> sh testimages.sh
+> ./a.out
+
+Clean the testimages afterwards using:
+> sh remove_testimages.sh
 
 ### Benchmarks
 
