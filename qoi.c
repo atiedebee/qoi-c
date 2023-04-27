@@ -26,7 +26,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "qoi.h"
 
 typedef unsigned char ubyte;
-typedef unsigned char vec4u8 __attribute__((vector_size(4)));
+typedef unsigned char vec4u8 __attribute__((vector_size(4))) __attribute__((aligned(4)));
 
 union Pixel{
     struct{
@@ -530,11 +530,11 @@ size_t decompress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header heade
 }
 
 
-size_t qoi_compress(const unsigned char in[static 1], unsigned char out[static 22], unsigned char channels, unsigned int w, unsigned int h){
+size_t qoi_compress(const unsigned char in[], unsigned char out[], unsigned char channels, unsigned int w, unsigned int h){
     struct qoi_header header;
     size_t size;
 
-    if( channels < 3 || channels > 4 || w == 0 || h == 0 ){
+    if( in == NULL || out == NULL || channels < 3 || channels > 4 || w == 0 || h == 0 ){
         return 0;
     }
 
@@ -550,11 +550,17 @@ size_t qoi_compress(const unsigned char in[static 1], unsigned char out[static 2
 }
 
 
-size_t qoi_decompress(const unsigned char* in, unsigned char* out){
-    struct qoi_header header = read_header(in);
+size_t qoi_decompress(const unsigned char in[], unsigned char out[]){
+    struct qoi_header header;
     size_t size;
 
-    if(!qoi_header_valid(header) ){
+    if( in == NULL || out == NULL ){
+        return 0;
+    }
+
+    header = read_header(in);
+
+    if(!qoi_header_isvalid(header) ){
         return 0;
     }
 
@@ -578,10 +584,13 @@ size_t qoi_decompressed_image_size(struct qoi_header h){
 
 
 struct qoi_header qoi_header_read(const unsigned char* in){
+    if( in == NULL ){
+        return (struct qoi_header){.w = 0, .h = 0};
+    }
     return read_header(in);
 }
 
 
-bool qoi_header_valid(struct qoi_header h){
+bool qoi_header_isvalid(struct qoi_header h){
     return h.w != 0 && h.h != 0 && (h.channels == 3 || h.channels == 4) && memcmp(h.magic, "qoif", 4) == 0;
 }

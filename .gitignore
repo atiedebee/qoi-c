@@ -7,3 +7,5 @@
 *.qoi
 *.out
 *.so
+*.rgba
+*.rgb
