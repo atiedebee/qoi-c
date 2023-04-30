@@ -218,26 +218,22 @@ bool test_decompress(const char* fin_name, const char *fout_name){
 }
 
 
-#define IMAGES 2
+#define IMAGES 3
 int main(){
-	// int runs = 1;
     int i = 0;
     double time_total = 0.0;
     double time_elapsed;
     double min = DBL_MAX, max = 0.0;
     struct timeval t1, t2;
 
-
-
-
     int image_counter = 0;
-	int runs[IMAGES] = {100, 10};
-    const unsigned int w[IMAGES] = {1920, 5120};
-    const unsigned int h[IMAGES] = {1080, 2880};
-    const unsigned char channels[IMAGES] = {QOI_RGBA, QOI_RGBA};
-    const char* finname[IMAGES] = {"Frieren.rgba", "rgba_big.rgba"};
-    const char* foutname[IMAGES] = {"Frieren.qoi", "rgba_big.qoi"};
-    const char* foutdecompressedname[IMAGES] = {"Frieren_d.rgba", "rgba_big_d.rgba"};
+	int runs[] = {100, 10, 20};
+    const unsigned int w[] = {1920, 5120, 2000};
+    const unsigned int h[] = {1080, 2880, 1335};
+    const unsigned char channels[] = {QOI_RGBA, QOI_RGBA, QOI_RGB};
+    const char* finname[] = {"Frieren.rgba", "rgba_big.rgba", "forest.rgb"};
+    const char* foutname[] = {"Frieren.qoi", "rgba_big.qoi", "forest.qoi"};
+    const char* foutdecompressedname[] = {"Frieren_d.rgba", "rgba_big_d.rgba", "forest_d.rgb"};
 
     for( image_counter = 0; image_counter < IMAGES; image_counter++ ){
         time_total = 0.0;
@@ -351,5 +347,6 @@ int main(){
         free(out);
         munmap(in, in_len);
     }
+
     return 0;
 }

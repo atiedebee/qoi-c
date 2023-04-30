@@ -29,6 +29,7 @@ Clean the testimages afterwards using:
 RGBA done with https://animecorner.me/wp-content/uploads/2023/03/Frieren.png
 The file size used to calculate the MB/s is the size of the RAW data (7.9MB)
 Each benchmark is done by running the compression part in a loop 100 times.
+The larger image benchmark is done with https://images2.alphacoders.com/112/1123167.png. Which is a 5120x2880 image
 
 
 compress (RGBA):
@@ -41,13 +42,15 @@ compress (RGBA):
 |2 |  9.26             |  853 |  9.02             |  875 |
 |3 |  9.05             |  872 |  8.32             |  949 |
 |4 |  7.67             | 1029 |  7.80             | 1012 |
+|5 |  6.90             | 1200 |  6.90             | 1200 |
+|5 (Large Image) |  72             | 825 |  72             | 825 |
 
 
 1. base
 2. replaced __builtin_add_overflow in calculate_diff with vector addition and subtraction
 3. changed calculate_luma to partially use vectors
 4. replaced comparisons with integer comparison in union (for some reason also reduced filesize from 2.6 MB to 1.8 MB)
-
+5. Put Luma and Diff calculations in the same place, and used SIMD for the diff calculation. (From here on out I'll round the results to 0.1 ms because of run to run variance)
 
 
 decompress (RGBA):

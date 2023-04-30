@@ -196,6 +196,26 @@ bool calculate_luma_clean(union Pixel *restrict dest, union Pixel *restrict prev
 
 
 static
+bool check_diff(union Pixel *restrict diff){
+    vec4u8 bools = diff->vec < (vec4u8){4, 4, 4, 0};
+    return bools[0] & bools[1] & bools[2];
+}
+
+static
+bool check_luma(union Pixel *restrict luma){
+    vec4u8 bools = luma->vec < (vec4u8){16, 64, 16, 0};
+    return bools[0] & bools[1] & bools[2];
+}
+
+static
+void get_diff_and_luma(union Pixel *restrict diff, union Pixel *restrict luma, union Pixel *restrict prev, union Pixel *restrict cur){
+    diff->vec = cur->vec - prev->vec + (vec4u8){2, 2, 2};
+    luma->vec = diff->vec - (vec4u8){diff->vec[1], 0, diff->vec[1]} + (vec4u8){-26, 30, -26};
+}
+
+
+
+static
 bool pixels_equal(const union Pixel *a, const union Pixel *b){
     return a->i == b->i;
 }
@@ -243,10 +263,14 @@ size_t compress_image_rgba(const ubyte* in, ubyte* out, struct qoi_header settin
                 write_qoi_index(&out[out_pos], pixels_index);
             }
             else if( cur_pixel.a == prev_pixel.a ){
-                if( calculate_diff(&diff_pixel, &prev_pixel, &cur_pixel) ){
+                get_diff_and_luma(&diff_pixel, &luma_pixel, &prev_pixel, &cur_pixel);
+
+                // if( calculate_diff(&diff_pixel, &prev_pixel, &cur_pixel) ){
+                if( check_diff(&diff_pixel) ){
                     write_qoi_diff(&out[out_pos], &diff_pixel);
                 }
-                else if( calculate_luma(&luma_pixel, &prev_pixel, &cur_pixel) ){
+                // else if( calculate_luma(&luma_pixel, &prev_pixel, &cur_pixel) ){
+                else if( check_luma(&luma_pixel) ){
                     write_qoi_luma(&out[out_pos], &luma_pixel);
                     out_pos += 1;
                 }
@@ -300,7 +324,6 @@ size_t compress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header setting
     while(pixel_counter < pixel_count)
     {
         memcpy(&cur_pixel, &in[pixel_counter * 3], 3);
-
 
         if( memcmp(&cur_pixel, &prev_pixel, 3) == 0 ){
             run_length += 1;
