@@ -228,6 +228,7 @@ int main(){
 
     int image_counter = 0;
 	int runs[] = {100, 10, 20};
+	// int runs[] = {1, 1, 1};
     const unsigned int w[] = {1920, 5120, 2000};
     const unsigned int h[] = {1080, 2880, 1335};
     const unsigned char channels[] = {QOI_RGBA, QOI_RGBA, QOI_RGB};
@@ -250,7 +251,7 @@ int main(){
         if( out == NULL ){
             return -1;
         }
-        size_t out_len;
+        size_t out_len = w[image_counter] * h[image_counter] * channels[image_counter];
 
         FILE* fout = fopen(foutname[image_counter], "w");
         if( fout == NULL ){

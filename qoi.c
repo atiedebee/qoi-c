@@ -20,6 +20,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 #include <endian.h>
 
@@ -115,7 +116,7 @@ void write_qoi_luma(ubyte* out, union Pixel *p){
 
 
 static
-size_t calculate_index(union Pixel *restrict p){
+ubyte calculate_index(union Pixel *restrict p){
     const ubyte r = 3 * p->r;
     const ubyte g = 5 * p->g;
     const ubyte b = 7 * p->b;
@@ -123,97 +124,20 @@ size_t calculate_index(union Pixel *restrict p){
     return (r + g + b + a) & 63;
 }
 
-
 static
-size_t calculate_index_rgb(union Pixel *restrict p){
-    return (p->r * 3 + p->g * 5 + p->b * 7 + p->a * 11)&63;
-}
-
-
-static
-bool calculate_diff(union Pixel *restrict dest, union Pixel *restrict prev, union Pixel *restrict cur){
-    dest->vec = cur->vec - prev->vec + 2;
-    if( dest->r < 4 && dest->g < 4 && dest->b < 4 ){
-        return true;
-    }
-    return false;
-}
-
-
-__attribute__((unused))
-static
-bool calculate_diff_clean(union Pixel *restrict dest, union Pixel *restrict prev, union Pixel *restrict cur){
-    const int16_t r = (int16_t)cur->r - (int16_t)prev->r;
-    const int16_t g = (int16_t)cur->g - (int16_t)prev->g;
-    const int16_t b = (int16_t)cur->b - (int16_t)prev->b;
-    if( r >= -2 && r <= 1 &&
-        g >= -2 && g <= 1 &&
-        b >= -2 && b <= 1
-    ){
-        dest->r = (ubyte)(r + 2);
-        dest->g = (ubyte)(g + 2);
-        dest->b = (ubyte)(b + 2);
-        return true;
-    }
-    return false;
-}
-
-
-static
-bool calculate_luma(union Pixel *restrict dest, union Pixel *restrict prev, union Pixel *restrict cur){
-    const int16_t dg = (int16_t)cur->g - (int16_t)prev->g;
-
-    dest->vec = cur->vec - prev->vec - (ubyte)dg + 8;
-
-    if( dg >= -32 && dg <= 31 && dest->r < 16 && dest->b < 16 ){
-        dest->g = (ubyte)(dg + 32);
-        return true;
-    }
-    return false;
-}
-
-
-
-__attribute__((unused))
-static
-bool calculate_luma_clean(union Pixel *restrict dest, union Pixel *restrict prev, union Pixel *restrict cur){
-    const int16_t dg = (int16_t)cur->g - (int16_t)prev->g;
-
-    if( dg >= -32 && dg <= 31 ){
-        const int16_t dr_dg = ((int16_t)cur->r - (int16_t)prev->r) - dg;
-        const int16_t db_dg = ((int16_t)cur->b - (int16_t)prev->b) - dg;;
-        if( dr_dg >= -8 && dr_dg <= 7 &&
-            db_dg >= -8 && db_dg <= 7
-        ){
-            dest->r = (ubyte)(dr_dg + 8);
-            dest->g = (ubyte)(dg + 32);
-            dest->b = (ubyte)(db_dg + 8);
-            return true;
-        }
-    }
-    return false;
-}
-
-
-static
-bool check_diff(union Pixel *restrict diff){
-    vec4u8 bools = diff->vec < (vec4u8){4, 4, 4, 0};
+bool calculate_diff_true_diff(union Pixel *restrict dest, const union Pixel *restrict true_diff){
+    dest->vec = true_diff->vec + 2;
+    vec4u8 bools = dest->vec < (vec4u8){4, 4, 4};
     return bools[0] & bools[1] & bools[2];
 }
 
-static
-bool check_luma(union Pixel *restrict luma){
-    vec4u8 bools = luma->vec < (vec4u8){16, 64, 16, 0};
-    return bools[0] & bools[1] & bools[2];
-}
 
 static
-void get_diff_and_luma(union Pixel *restrict diff, union Pixel *restrict luma, union Pixel *restrict prev, union Pixel *restrict cur){
-    diff->vec = cur->vec - prev->vec + (vec4u8){2, 2, 2};
-    luma->vec = diff->vec - (vec4u8){diff->vec[1], 0, diff->vec[1]} + (vec4u8){-26, 30, -26};
+bool calculate_luma_true_diff(union Pixel *restrict dest, const union Pixel *restrict true_diff){
+    dest->vec = true_diff->vec - (vec4u8){true_diff->vec[1], 0, true_diff->vec[1]} + (vec4u8){8, 32, 8};
+    vec4u8 vals = dest->vec < (vec4u8){16, 64, 16};
+    return vals[0] & vals[1] & vals[2];
 }
-
-
 
 static
 bool pixels_equal(const union Pixel *a, const union Pixel *b){
@@ -228,19 +152,20 @@ size_t compress_image_rgba(const ubyte* in, ubyte* out, struct qoi_header settin
     union Pixel pixels[64];
     union Pixel cur_pixel;
     union Pixel prev_pixel = {{0, 0, 0, 255}};
+    union Pixel true_diff;
     union Pixel diff_pixel;
     union Pixel luma_pixel;
 
     size_t pixel_counter = 0;
     size_t out_pos = 0;
     ubyte run_length = 0;
-    size_t pixels_index;
+    ubyte pixels_index;
 
     memset(pixels, 0, sizeof(pixels));
     pixels[calculate_index(&prev_pixel)].i = prev_pixel.i;
 
     while(pixel_counter < pixel_count) {
-        memcpy(&cur_pixel, &in [pixel_counter*4], 4);
+        memcpy(&cur_pixel, &in[pixel_counter * 4], 4);
 
         if( pixels_equal(&cur_pixel, &prev_pixel) ){
             run_length += 1;
@@ -263,17 +188,15 @@ size_t compress_image_rgba(const ubyte* in, ubyte* out, struct qoi_header settin
                 write_qoi_index(&out[out_pos], pixels_index);
             }
             else if( cur_pixel.a == prev_pixel.a ){
-                get_diff_and_luma(&diff_pixel, &luma_pixel, &prev_pixel, &cur_pixel);
-
-                // if( calculate_diff(&diff_pixel, &prev_pixel, &cur_pixel) ){
-                if( check_diff(&diff_pixel) ){
+                true_diff.vec = cur_pixel.vec - prev_pixel.vec;
+                if( calculate_diff_true_diff(&diff_pixel, &true_diff) ){
                     write_qoi_diff(&out[out_pos], &diff_pixel);
                 }
-                // else if( calculate_luma(&luma_pixel, &prev_pixel, &cur_pixel) ){
-                else if( check_luma(&luma_pixel) ){
+                else if( calculate_luma_true_diff(&luma_pixel, &true_diff) ){
                     write_qoi_luma(&out[out_pos], &luma_pixel);
                     out_pos += 1;
                 }
+
                 else{
                     out[out_pos] = QOI_OP_RGB;
                     memcpy(&out[out_pos+1], &cur_pixel, 3);
@@ -285,6 +208,7 @@ size_t compress_image_rgba(const ubyte* in, ubyte* out, struct qoi_header settin
                 memcpy(&out[out_pos+1], &cur_pixel, 4);
                 out_pos += 4;
             }
+
             out_pos += 1;
             pixels[pixels_index].i = cur_pixel.i;
             prev_pixel.i = cur_pixel.i;
@@ -303,16 +227,16 @@ size_t compress_image_rgba(const ubyte* in, ubyte* out, struct qoi_header settin
     return out_pos;
 }
 
-
 static
 size_t compress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header settings){
     const size_t pixel_count = header_get_w(settings) * header_get_h(settings);
 
-    union Pixel pixels[64] = {0};
+    union Pixel pixels[64];
     union Pixel prev_pixel = {{0, 0, 0, 255}};
-    union Pixel cur_pixel = {.i = prev_pixel.i};
+    union Pixel cur_pixel = {{0, 0, 0, 255}};
     union Pixel diff_pixel;
     union Pixel luma_pixel;
+    union Pixel true_diff;
 
     size_t pixel_counter = 0;
     size_t out_pos = 0;
@@ -324,47 +248,50 @@ size_t compress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header setting
     while(pixel_counter < pixel_count)
     {
         memcpy(&cur_pixel, &in[pixel_counter * 3], 3);
-
-        if( memcmp(&cur_pixel, &prev_pixel, 3) == 0 ){
+        if( pixels_equal(&cur_pixel, &prev_pixel) ){
             run_length += 1;
             if( run_length == 62 ){
                 write_qoi_run(&out[out_pos], run_length);
                 out_pos += 1;
                 run_length = 0;
             }
-        }
-        else{
+        }else
+        {
             if( run_length > 0 ){
                 write_qoi_run(&out[out_pos], run_length);
                 out_pos += 1;
                 run_length = 0;
             }
 
-            pixels_index = calculate_index_rgb(&cur_pixel);
+            pixels_index = calculate_index(&cur_pixel);
 
-            if( memcmp(&cur_pixel, &pixels[pixels_index], 3) == 0 ){
-                write_qoi_index(&out[out_pos], pixels_index);
+            if( cur_pixel.i == pixels[pixels_index].i ) {
+                write_qoi_index(&out[out_pos], (ubyte)pixels_index);
                 out_pos += 1;
-            }
-            else if( calculate_diff(&diff_pixel, &prev_pixel, &cur_pixel) ){
-                write_qoi_diff(&out[out_pos], &diff_pixel);
-                out_pos += 1;
-            }
-            else if( calculate_luma(&luma_pixel, &prev_pixel, &cur_pixel) ){
-                write_qoi_luma(&out[out_pos], &diff_pixel);
-                out_pos += 2;
             }
             else{
-                out[out_pos] = QOI_OP_RGB;
-                memcpy(&out[out_pos+1], &cur_pixel, 3);
-                out_pos += 4;
+                true_diff.vec = cur_pixel.vec - prev_pixel.vec;
+                if( calculate_diff_true_diff(&diff_pixel, &true_diff) ){
+                    write_qoi_diff(&out[out_pos], &diff_pixel);
+                    out_pos += 1;
+                }
+                else if( calculate_luma_true_diff(&luma_pixel, &true_diff) ){
+                    write_qoi_luma(&out[out_pos], &luma_pixel);
+                    out_pos += 2;
+                }
+                else {
+                    out[out_pos] = QOI_OP_RGB;
+                    memcpy(&out[out_pos+1], &cur_pixel, 3);
+                    out_pos += 4;
+                }
             }
-            pixels[pixels_index].i = cur_pixel.i;
             prev_pixel.i = cur_pixel.i;
+            pixels[pixels_index].i = cur_pixel.i;
         }
 
         pixel_counter += 1;
     }
+
     if( run_length > 0 ){
         write_qoi_run(&out[out_pos], run_length);
         out_pos += 1;
@@ -397,7 +324,6 @@ size_t decompress_image_rgba(const ubyte* in, ubyte* out, struct qoi_header head
     ubyte b;
 
     memset(pixels, 0, sizeof(pixels));
-
 
     while( pixel_counter < pixel_count ){
         b = in[in_index];
@@ -543,7 +469,7 @@ size_t decompress_image_rgb(const ubyte* in, ubyte* out, struct qoi_header heade
         }
 
         pixel_counter += 1;
-        pixels_index = calculate_index_rgb(&cur_pixel);
+        pixels_index = calculate_index(&cur_pixel);
 
         pixels[pixels_index].i = cur_pixel.i;
         prev_pixel.i = cur_pixel.i;
